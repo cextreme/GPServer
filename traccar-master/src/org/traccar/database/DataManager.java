@@ -358,19 +358,21 @@ public class DataManager implements IdentityManager {
     /***************************** Modificaciones a partir de aqui **************************************/
 
     public void addDevice(Device device) throws SQLException {
-        //long id;
-        addDeviceCartoDB(device);
-        device.setId(/*id=*/QueryBuilder.create(dataSource, getQuery("database.insertDevice"), true)
+        long id;
+        device.setId(id=QueryBuilder.create(dataSource, getQuery("database.insertDevice"), true)
                 .setObject(device)
                 .executeUpdate());
         updateDeviceCache(true);
-        //System.out.println("El identificador del dispositivo recien añadido es: " + id);
+        addDeviceCartoDB(device, id);
+        System.out.println("El identificador del dispositivo recien añadido es: " + id);
     }
     
-    public void addDeviceCartoDB(Device device){
+    public void addDeviceCartoDB(Device device, long id){
         String urlParameters = "q=INSERT INTO devices" 
-                        + "(name, uniqueid)"
-                        + " VALUES ('" + device.getName()+ "', '"
+                        + "(cartodb_id, name, uniqueid)"
+                        + " VALUES ("
+                        + id + ", '"
+                        + device.getName()+ "', '"
                         + device.getUniqueId()
                         + "')&api_key=bb027343ceb82dece775db749f966f81c9e58763";
         doPostCartoDB(urlParameters);
@@ -389,7 +391,7 @@ public class DataManager implements IdentityManager {
         String urlParameters = "q=UPDATE devices SET "
                 + "name = '" + device.getName()+ "', "
                 + "uniqueid = '" + device.getUniqueId()
-                + "' WHERE cartodb_id="+ 5 ////////////////////////////////////////////// id en cartodb? en vez de eso por el uniqueid
+                + "' WHERE cartodb_id="+ device.getId()
                 + "&api_key=bb027343ceb82dece775db749f966f81c9e58763";  
         doPostCartoDB(urlParameters);
     }
@@ -409,7 +411,7 @@ public class DataManager implements IdentityManager {
         String urlParameters = "q=UPDATE devices SET "
                 + "status = '" + device.getStatus()+ "', "
                 + "lastupdate = '" + device.getLastUpdate()
-                + "' WHERE cartodb_id="+ 5 ////////////////////////////////////////////// id en cartodb? en vez de eso por el uniqueid
+                + "' WHERE cartodb_id="+ device.getId()
                 + "&api_key=bb027343ceb82dece775db749f966f81c9e58763";
         doPostCartoDB(urlParameters);
     }
@@ -425,7 +427,7 @@ public class DataManager implements IdentityManager {
     public void deleteDeviceCartoDB(long deviceId){
         //DELETE FROM devices WHERE id = :id;
         String urlParameters = "q=DELETE FROM devices WHERE cartodb_id="
-                +  5 ////////////////////////////////////////////// id en cartodb? en vez de eso por el uniqueid
+                +  deviceId
                 + "&api_key=bb027343ceb82dece775db749f966f81c9e58763";
         doPostCartoDB(urlParameters);
     }
@@ -522,21 +524,24 @@ public class DataManager implements IdentityManager {
     /***************************** Modificaciones a partir de aqui **************************************/
 
     public void addPosition(Position position) throws SQLException {
-        addPositionCartoDB(position);
-        position.setId(QueryBuilder.create(dataSource, getQuery("database.insertPosition"), true)
+        long id;
+        position.setId(id=QueryBuilder.create(dataSource, getQuery("database.insertPosition"), true)
                 .setDate("now", new Date())
                 .setObject(position)
                 .executeUpdate());
+        System.out.println("ID: "+ id);
+        addPositionCartoDB(position, id);
     }
 
-    public void addPositionCartoDB(Position position){
+    public void addPositionCartoDB(Position position, long id){
         String urlParameters = "q=INSERT INTO positions"
-                + "(address,altitude,attributes,course,deviceid,devicetime,fixtime,latitude,longitude,protocol,speed,valid, servertime)"
-                + " VALUES ('" + position.getAddress() + "',"
+                + "(cartodb_id,address,altitude,attributes,course,deviceid,devicetime,fixtime,latitude,longitude,protocol,speed,valid, servertime)"
+                + " VALUES ("+ id
+                + ", '" + position.getAddress() + "',"
                 + position.getAltitude() + ","
                 + "'"+ position.getAttributes() + "',"
                 + position.getCourse() + ","
-                + 6 + "," // position.getDeviceId()DEVICE ID!!! /////// id en cartodb?
+                + position.getDeviceId() + ","
                 + "'"+ position.getDeviceTime() + "',"
                 + "'"+ position.getFixTime() + "',"
                 + position.getLatitude() + ","
@@ -562,7 +567,7 @@ public class DataManager implements IdentityManager {
     public void updateLatestPositionCartoDB(Position position){
         //UPDATE devices SET positionId = :id WHERE id = :deviceId;
         String urlParameters = "q=UPDATE devices SET positionid = " + position.getId() //////// id en cartodb? en vez de eso por el uniqueid
-                + " WHERE cartodb_id=6" ////////////////////////////////////////////// id en cartodb? 
+                + " WHERE cartodb_id=" + position.getDeviceId() ////////////////////////////////////////////// id en cartodb? 
                 + "&api_key=bb027343ceb82dece775db749f966f81c9e58763";
         doPostCartoDB(urlParameters);
     }
