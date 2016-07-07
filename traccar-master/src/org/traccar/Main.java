@@ -15,6 +15,8 @@
  */
 package org.traccar;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import org.traccar.helper.Log;
 
 import java.util.Locale;
@@ -35,6 +37,23 @@ public final class Main {
             Context.getWebServer().start();
         }
 
+        /*******************************************************************/
+        BufferedReader in;
+        in = new BufferedReader(new InputStreamReader(System.in));
+        boolean fin = false;
+        while(!fin){
+            System.out.println("Escriba \"exit\" para para la ejecución:");
+            String Lectura = in.readLine();
+            if(Lectura.equals("exit")){
+                System.out.println("Shutting down server!!!");
+                fin=true;
+                System.exit(0);
+            } else {
+                System.out.println("Error en la entrada por pantalla, opción no válida.");
+            }
+        }
+        /*******************************************************************/
+        
         Runtime.getRuntime().addShutdownHook(new Thread() {
             @Override
             public void run() {

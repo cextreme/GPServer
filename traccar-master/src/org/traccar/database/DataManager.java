@@ -56,6 +56,14 @@ import org.traccar.model.User;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import java.io.BufferedReader;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.MalformedURLException;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import javax.net.ssl.HttpsURLConnection;
 
 public class DataManager implements IdentityManager {
 
@@ -347,21 +355,45 @@ public class DataManager implements IdentityManager {
         return devices;
     }
 
+    /***************************** Modificaciones a partir de aqui **************************************/
+
     public void addDevice(Device device) throws SQLException {
+        addDeviceCartoDB(device);
         device.setId(QueryBuilder.create(dataSource, getQuery("database.insertDevice"), true)
                 .setObject(device)
                 .executeUpdate());
         updateDeviceCache(true);
     }
+    
+    public void addDeviceCartoDB(Device device){
+        String urlParameters = "q=INSERT INTO devices" 
+                        + "(name, uniqueid)"
+                        + " VALUES ('" + device.getName()+ "', '"
+                        + device.getUniqueId()
+                        + "')&api_key=bb027343ceb82dece775db749f966f81c9e58763";
+        doPostCartoDB(urlParameters);
+    }
 
     public void updateDevice(Device device) throws SQLException {
+        updateDeviceCartoDB(device);
         QueryBuilder.create(dataSource, getQuery("database.updateDevice"))
                 .setObject(device)
                 .executeUpdate();
         updateDeviceCache(true);
     }
+    
+    public void updateDeviceCartoDB(Device device){
+        //UPDATE devices SET name = :name, uniqueId = :uniqueId WHERE id = :id;
+        String urlParameters = "q=UPDATE devices SET "
+                + "name = '" + device.getName()+ "', "
+                + "uniqueid = '" + device.getUniqueId()
+                + "' WHERE cartodb_id="+ 5
+                + "&api_key=bb027343ceb82dece775db749f966f81c9e58763";  
+        doPostCartoDB(urlParameters);
+    }
 
     public void updateDeviceStatus(Device device) throws SQLException {
+        updateDeviceStatusCartoDB(device);
         QueryBuilder.create(dataSource, getQuery("database.updateDeviceStatus"))
                 .setObject(device)
                 .executeUpdate();
@@ -369,13 +401,34 @@ public class DataManager implements IdentityManager {
         cachedDevice.setStatus(device.getStatus());
         cachedDevice.setMotion(device.getMotion());
     }
+    
+    public void updateDeviceStatusCartoDB(Device device){
+        // UPDATE devices SET status = :status, lastUpdate = :lastUpdate WHERE id = :id;
+        String urlParameters = "q=UPDATE devices SET "
+                + "status = '" + device.getStatus()+ "', "
+                + "lastupdate = '" + device.getLastUpdate()
+                + "' WHERE cartodb_id="+ 5
+                + "&api_key=bb027343ceb82dece775db749f966f81c9e58763";
+        doPostCartoDB(urlParameters);
+    }
 
     public void removeDevice(long deviceId) throws SQLException {
+        deleteDeviceCartoDB(deviceId);
         QueryBuilder.create(dataSource, getQuery("database.deleteDevice"))
                 .setLong("id", deviceId)
                 .executeUpdate();
         updateDeviceCache(true);
     }
+    
+    public void deleteDeviceCartoDB(long device){
+        //DELETE FROM devices WHERE id = :id;
+        String urlParameters = "q=DELETE FROM devices WHERE cartodb_id="
+                +  5
+                + "&api_key=bb027343ceb82dece775db749f966f81c9e58763";
+        doPostCartoDB(urlParameters);
+    }
+    
+    /***********************************************************************************************************/
 
     public void linkDevice(long userId, long deviceId) throws SQLException {
         QueryBuilder.create(dataSource, getQuery("database.linkDevice"))
@@ -523,5 +576,50 @@ public class DataManager implements IdentityManager {
         Date to = calendar.getTime();
         return getEvents(deviceId, type, new Date(), to);
     }
+    
+    
+    
 
+    /***************************** Modificaciones a partir de aqui **************************************/
+
+    public void doPostCartoDB(String urlParameters){
+        try {
+            String url = "https://cextreme.cartodb.com/api/v2/sql";
+            URL obj = new URL(url);
+            HttpsURLConnection con = (HttpsURLConnection) obj.openConnection();
+            
+            //add reuqest header
+            con.setRequestMethod("POST");
+            
+            // Send post request
+            con.setDoOutput(true);
+            DataOutputStream wr = new DataOutputStream(con.getOutputStream());
+            wr.writeBytes(urlParameters);
+            wr.flush();
+            wr.close();
+            
+            int responseCode = con.getResponseCode();
+            System.out.println("\nSending 'POST' request to URL : " + url);
+            System.out.println("Post parameters : " + urlParameters);
+            System.out.println("Response Code : " + responseCode);
+            
+            BufferedReader in = new BufferedReader(
+                    new InputStreamReader(con.getInputStream()));
+            String inputLine;
+            StringBuffer response = new StringBuffer();
+            
+            while ((inputLine = in.readLine()) != null) {
+                response.append(inputLine);
+            }
+            in.close();
+            
+            //print result
+            System.out.println(response.toString());
+            
+        } catch (MalformedURLException ex) {
+            Logger.getLogger(DataManager.class.getName()).log(Level.SEVERE, null, ex);
+        } catch (IOException ex) {
+            Logger.getLogger(DataManager.class.getName()).log(Level.SEVERE, null, ex);
+        }
+    }
 }
