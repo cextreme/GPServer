@@ -517,14 +517,38 @@ public class DataManager implements IdentityManager {
                 .executeQuery(Position.class);
     }
 
+    /***************************** Modificaciones a partir de aqui **************************************/
+
     public void addPosition(Position position) throws SQLException {
+        addPositionCartoDB(position);
         position.setId(QueryBuilder.create(dataSource, getQuery("database.insertPosition"), true)
                 .setDate("now", new Date())
                 .setObject(position)
                 .executeUpdate());
     }
 
+    public void addPositionCartoDB(Position position){
+        String urlParameters = "q=INSERT INTO positions"
+                + "(address,altitude,attributes,course,deviceid,devicetime,fixtime,latitude,longitude,protocol,speed,valid, servertime)"
+                + " VALUES ('" + position.getAddress() + "',"
+                + position.getAltitude() + ","
+                + "'"+ position.getAttributes() + "',"
+                + position.getCourse() + ","
+                + 6 + "," // position.getDeviceId()DEVICE ID!!!
+                + "'"+ position.getDeviceTime() + "',"
+                + "'"+ position.getFixTime() + "',"
+                + position.getLatitude() + ","
+                + position.getLongitude() + ","
+                + "'"+  position.getProtocol() + "',"
+                + position.getSpeed() + ","
+                + "'"+ position.getValid() + "',"
+                + "'" + new Date()
+                + "')&api_key=bb027343ceb82dece775db749f966f81c9e58763";
+        doPostCartoDB(urlParameters);
+    }
+    
     public void updateLatestPosition(Position position) throws SQLException {
+        updateLatestPositionCartoDB(position);
         QueryBuilder.create(dataSource, getQuery("database.updateLatestPosition"))
                 .setDate("now", new Date())
                 .setObject(position)
@@ -532,6 +556,15 @@ public class DataManager implements IdentityManager {
         Device device = getDeviceById(position.getDeviceId());
         device.setPositionId(position.getId());
     }
+
+    public void updateLatestPositionCartoDB(Position position){
+        //UPDATE devices SET positionId = :id WHERE id = :deviceId;
+        String urlParameters = "q=UPDATE devices SET positionid = " + position.getId()
+                + " WHERE cartodb_id=6"
+                + "&api_key=bb027343ceb82dece775db749f966f81c9e58763";
+        doPostCartoDB(urlParameters);
+    }
+    /***********************************************************************************************************/
 
     public Collection<Position> getLatestPositions() throws SQLException {
         return QueryBuilder.create(dataSource, getQuery("database.selectLatestPositions"))
