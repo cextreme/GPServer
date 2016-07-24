@@ -566,8 +566,9 @@ public class DataManager implements IdentityManager {
 
     public void updateLatestPositionCartoDB(Position position){
         //UPDATE devices SET positionId = :id WHERE id = :deviceId;
-        String urlParameters = "q=UPDATE devices SET positionid = " + position.getId() //////// id en cartodb? en vez de eso por el uniqueid
-                + " WHERE cartodb_id=" + position.getDeviceId() ////////////////////////////////////////////// id en cartodb? 
+        String urlParameters = "q=UPDATE devices SET last_latitude = " + position.getLatitude() 
+                + ", last_longitude = " + position.getLongitude() 
+                + " WHERE cartodb_id=" + position.getDeviceId() 
                 + "&api_key=bb027343ceb82dece775db749f966f81c9e58763";
         doPostCartoDB(urlParameters);
     }
