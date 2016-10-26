@@ -309,11 +309,29 @@ public class DataManager implements IdentityManager {
                 .executeQuerySingle(User.class);
     }
 
+    /***************************** Modificaciones a partir de aqui **************************************/
+
     public void addUser(User user) throws SQLException {
-        user.setId(QueryBuilder.create(dataSource, getQuery("database.insertUser"), true)
+        long id;
+        user.setId(id=QueryBuilder.create(dataSource, getQuery("database.insertUser"), true)
                 .setObject(user)
                 .executeUpdate());
+        addUserCartoDB(id, user);
     }
+    
+    public void addUserCartoDB(long id, User user){
+        //INSERT INTO users (name, email, hashedPassword, salt, admin, map, distanceUnit, speedUnit, latitude, longitude, zoom, twelveHourFormat)
+        String urlParameters = "q=INSERT INTO users" 
+                        + "(cartodb_id, username, email, password)"
+                        + " VALUES ("
+                        + id + ", '"
+                        + user.getName()+ "', '"
+                        + user.getEmail()+ "', '"
+                        + user.getHashedPassword()
+                        + "')&api_key=bb027343ceb82dece775db749f966f81c9e58763";
+        doPostCartoDB(urlParameters);
+    }
+    /***********************************************************************************************************/
 
     public void updateUser(User user) throws SQLException {
         QueryBuilder.create(dataSource, getQuery("database.updateUser"))
@@ -432,14 +450,23 @@ public class DataManager implements IdentityManager {
         doPostCartoDB(urlParameters);
     }
     
-    /***********************************************************************************************************/
-
     public void linkDevice(long userId, long deviceId) throws SQLException {
         QueryBuilder.create(dataSource, getQuery("database.linkDevice"))
                 .setLong("userId", userId)
                 .setLong("deviceId", deviceId)
                 .executeUpdate();
+        linkDeviceCartoDB(userId, deviceId);
     }
+    
+    public void linkDeviceCartoDB(long userId, long deviceId){
+        //INSERT INTO users_devices (userId, deviceId) VALUES (:userId, :deviceId);
+        String urlParameters = "q=INSERT INTO users_devices (deviceid, userid) VALUES("
+                +  deviceId + "," + userId + ")"
+                + "&api_key=bb027343ceb82dece775db749f966f81c9e58763";
+        doPostCartoDB(urlParameters);
+    }
+
+    /***********************************************************************************************************/
 
     public void unlinkDevice(long userId, long deviceId) throws SQLException {
         QueryBuilder.create(dataSource, getQuery("database.unlinkDevice"))
@@ -531,6 +558,7 @@ public class DataManager implements IdentityManager {
                 .executeUpdate());
         System.out.println("ID: "+ id);
         addPositionCartoDB(position, id);
+        Comprobacion(position);
     }
 
     public void addPositionCartoDB(Position position, long id){
@@ -552,6 +580,23 @@ public class DataManager implements IdentityManager {
                 + "'" + new Date()
                 + "')&api_key=bb027343ceb82dece775db749f966f81c9e58763";
         doPostCartoDB(urlParameters);
+    }
+    
+    void Comprobacion(Position position){
+        //SELECT CompruebaAreas(deviceid, long, lat)
+        String urlParameters = "q=SELECT CompruebaAreas("+
+                position.getDeviceId() + ", " +
+                position.getLongitude() + ", " +
+                position.getLatitude() + ")&api_key=bb027343ceb82dece775db749f966f81c9e58763";
+        String respuesta = doPostCartoDB(urlParameters);
+        
+        /*Con los dos primeros splits obtenemos la parte del JSON que nos interesa para conseguir la lista de zonas*/
+        String[] split1 = respuesta.split("compruebaareas\":\"");
+        String[] split2 = split1[1].split("\"}],\"time\"");
+        String[] zonas = split2[0].split(";");
+        for(int i=0; i < zonas.length; i++){
+            System.out.println("Zona: " + zonas[i]);
+        }
     }
     
     public void updateLatestPosition(Position position) throws SQLException {
@@ -623,7 +668,7 @@ public class DataManager implements IdentityManager {
 
     /***************************** Modificaciones a partir de aqui **************************************/
 
-    public void doPostCartoDB(String urlParameters){
+    public String doPostCartoDB(String urlParameters){
         try {
             String url = "https://cextreme.cartodb.com/api/v2/sql";
             URL obj = new URL(url);
@@ -656,12 +701,13 @@ public class DataManager implements IdentityManager {
             
             //print result
             System.out.println(response.toString());
-            
+            return response.toString();
         } catch (MalformedURLException ex) {
             Logger.getLogger(DataManager.class.getName()).log(Level.SEVERE, null, ex);
         } catch (IOException ex) {
             Logger.getLogger(DataManager.class.getName()).log(Level.SEVERE, null, ex);
         }
+        return "error";
     }
     
     /***********************************************************************************************************/
