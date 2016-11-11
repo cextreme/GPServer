@@ -58,9 +58,14 @@ import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import java.io.BufferedReader;
 import java.io.DataOutputStream;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.net.MalformedURLException;
+import java.util.TreeMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.net.ssl.HttpsURLConnection;
@@ -83,6 +88,8 @@ public class DataManager implements IdentityManager {
     private final ReadWriteLock groupsLock = new ReentrantReadWriteLock();
     private final Map<Long, Group> groupsById = new HashMap<>();
     private long groupsLastUpdate;
+    
+    private ArrayList<Map<String, String>> dispositivos;
 
     public DataManager(Config config) throws Exception {
         this.config = config;
@@ -91,6 +98,14 @@ public class DataManager implements IdentityManager {
         initDatabaseSchema();
 
         dataRefreshDelay = config.getLong("database.refreshDelay", DEFAULT_REFRESH_DELAY) * 1000;
+        
+        if(cargarArrayDispositivos()){
+            System.out.println("Array de dispositivos cargado.");
+        } else {
+            dispositivos = new ArrayList<Map<String, String>>();
+            dispositivos.add(null);
+        }
+        
     }
 
     public DataSource getDataSource() {
@@ -322,12 +337,13 @@ public class DataManager implements IdentityManager {
     public void addUserCartoDB(long id, User user){
         //INSERT INTO users (name, email, hashedPassword, salt, admin, map, distanceUnit, speedUnit, latitude, longitude, zoom, twelveHourFormat)
         String urlParameters = "q=INSERT INTO users" 
-                        + "(cartodb_id, username, email, password)"
+                        + "(cartodb_id, username, email, password, salt)"
                         + " VALUES ("
                         + id + ", '"
                         + user.getName()+ "', '"
                         + user.getEmail()+ "', '"
-                        + user.getHashedPassword()
+                        + user.getHashedPassword() + "', '"
+                        + user.getSalt()
                         + "')&api_key=bb027343ceb82dece775db749f966f81c9e58763";
         doPostCartoDB(urlParameters);
     }
@@ -382,6 +398,8 @@ public class DataManager implements IdentityManager {
                 .executeUpdate());
         updateDeviceCache(true);
         addDeviceCartoDB(device, id);
+        dispositivos.add((int)id, null);
+        guardarArrayDispositivos();
         System.out.println("El identificador del dispositivo recien añadido es: " + id);
     }
     
@@ -473,6 +491,15 @@ public class DataManager implements IdentityManager {
                 .setLong("userId", userId)
                 .setLong("deviceId", deviceId)
                 .executeUpdate();
+        unlinkDeviceCartoDB(userId, deviceId);
+    }
+    
+    public void unlinkDeviceCartoDB(long userId, long deviceId) throws SQLException {
+        //DELETE FROM user_device WHERE userId = :userId AND deviceId = :deviceId;
+        String urlParameters = "q=DELETE FROM users_devices WHERE deviceid="
+                +  deviceId + " AND userid=" + userId
+                + "&api_key=bb027343ceb82dece775db749f966f81c9e58763";
+        doPostCartoDB(urlParameters);
     }
 
     public Collection<Group> getAllGroups() throws SQLException {
@@ -583,6 +610,8 @@ public class DataManager implements IdentityManager {
     }
     
     void Comprobacion(Position position){
+        Map<String, String> arbolZonas = new TreeMap<String, String>();
+        
         //SELECT CompruebaAreas(deviceid, long, lat)
         String urlParameters = "q=SELECT CompruebaAreas("+
                 position.getDeviceId() + ", " +
@@ -596,7 +625,47 @@ public class DataManager implements IdentityManager {
         String[] zonas = split2[0].split(";");
         for(int i=0; i < zonas.length; i++){
             System.out.println("Zona: " + zonas[i]);
+            String kv[] = zonas[i].split(",");
+            arbolZonas.put(kv[0], kv[1]);
         }
+        
+        int id = (int)position.getDeviceId();
+        System.out.println("----------------------------ANTES");
+        if(dispositivos.get(id) == null){
+                    System.out.println("----------------------------OP1");
+
+            System.out.println("Creando el primer arbol para el dispositivo...");
+            dispositivos.set(id, arbolZonas);
+        } else {
+                    System.out.println("----------------------------OP2");
+
+            if (dispositivos.get(id).equals(arbolZonas)) {
+                System.out.println("Son iguales");
+            } else {
+                System.out.println("NO son iguales");
+                
+                ArrayList<String> keys = new ArrayList<String>();
+                Set<String> k = arbolZonas.keySet();
+                keys.addAll(k);
+
+                for (int j = 0; j < keys.size(); j++) {
+                    if (dispositivos.get(id).containsKey(keys.get(j))) {
+                        String v_nuevo = arbolZonas.get(keys.get(j));
+                        String v_viejo = dispositivos.get(id).get(keys.get(j));
+                        if (!v_nuevo.equals(v_viejo)) {
+                            if (v_nuevo.equals("0")) {
+                                System.out.println("El dispositiva ha pasado de estar dentro a fuera.");
+                            } else {
+                                System.out.println("El dispositiva ha pasado de estar fuera a dentro.");
+                            }
+                        }
+                    }
+                }         
+                dispositivos.set(id, arbolZonas);
+            }
+        }
+	        System.out.println("-------------------------DESPUES");
+	
     }
     
     public void updateLatestPosition(Position position) throws SQLException {
@@ -668,6 +737,29 @@ public class DataManager implements IdentityManager {
 
     /***************************** Modificaciones a partir de aqui **************************************/
 
+    public boolean cargarArrayDispositivos() {
+        try {
+            FileInputStream fis = new FileInputStream("disp_zonas.map");
+            ObjectInputStream ois = new ObjectInputStream(fis);
+            this.dispositivos = (ArrayList<Map<String, String>>) ois.readObject();
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+
+    }
+
+    public void guardarArrayDispositivos() {
+        try {
+            FileOutputStream fos = new FileOutputStream("disp_zonas.map");
+            ObjectOutputStream oos = new ObjectOutputStream(fos);
+            oos.writeObject(this.dispositivos);
+        } catch (Exception e) {
+            System.out.println(e);
+        }
+    }
+    
+    
     public String doPostCartoDB(String urlParameters){
         try {
             String url = "https://cextreme.cartodb.com/api/v2/sql";
