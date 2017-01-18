@@ -104,6 +104,14 @@ public class DataManager implements IdentityManager {
         } else {
             dispositivos = new ArrayList<Map<String, String>>();
             dispositivos.add(null);
+            guardarArrayDispositivos();
+            
+            // Añadir a cartodb el usuario admin admin
+            System.out.println("-----------> Añadiendo al administrador !!!!!!");
+            String urlParameters = "q=INSERT INTO users" 
+                            + "(cartodb_id, username, email, password, salt)"
+                            + " VALUES (0, 'admin', 'admin@admin.es', 'BEF6EBB00275D6C83C5300D69CBA5548A8FD0BC07E6F6A44', 'ABB6183F383F884C254B301A95A86897E90B904B04B5A49A')&api_key=bb027343ceb82dece775db749f966f81c9e58763";
+            doPostCartoDB(urlParameters);
         }
         
     }
@@ -630,19 +638,25 @@ public class DataManager implements IdentityManager {
         }
         
         int id = (int)position.getDeviceId();
-        System.out.println("----------------------------ANTES");
+
         if(dispositivos.get(id) == null){
-                    System.out.println("----------------------------OP1");
 
             System.out.println("Creando el primer arbol para el dispositivo...");
             dispositivos.set(id, arbolZonas);
         } else {
-                    System.out.println("----------------------------OP2");
 
             if (dispositivos.get(id).equals(arbolZonas)) {
                 System.out.println("Son iguales");
             } else {
                 System.out.println("NO son iguales");
+                String mensaje;
+                String dest = "";
+                //consultar a carto el id del dispositivo a notificar
+                urlParameters = "q=SELECT idnotification FROM users WHERE cartodb_id = (SELECT userid FROM users_devices WHERE deviceid="+ id + ")";
+                respuesta = doPostCartoDB(urlParameters);
+                String sep[] = respuesta.split("idnotification\":\" ");
+                String sep2[] = sep[1].split("\"}],\"time\"");
+                dest = sep2[0];
                 
                 ArrayList<String> keys = new ArrayList<String>();
                 Set<String> k = arbolZonas.keySet();
@@ -655,16 +669,18 @@ public class DataManager implements IdentityManager {
                         if (!v_nuevo.equals(v_viejo)) {
                             if (v_nuevo.equals("0")) {
                                 System.out.println("El dispositiva ha pasado de estar dentro a fuera.");
+                                mensaje = "El dispositiva ha pasado de estar dentro a fuera.";
                             } else {
                                 System.out.println("El dispositiva ha pasado de estar fuera a dentro.");
+                                mensaje = "El dispositiva ha pasado de estar fuera a dentro.";
                             }
+                            doPostNotification(dest, mensaje);
                         }
                     }
                 }         
                 dispositivos.set(id, arbolZonas);
             }
         }
-	        System.out.println("-------------------------DESPUES");
 	
     }
     
@@ -802,6 +818,54 @@ public class DataManager implements IdentityManager {
         return "error";
     }
     
+    
+    public void doPostNotification(String dest, String mensaje){
+        System.out.println("PRUEBA POST NOTIFICACION");
+	String apikey = "key=AAAANDMNXEg:APA91bG5U1Dat9T-jLTDpB1khB7gQ2ht8aRghS0F43eFKaJDV_ZBa1B2I3o6q4-I466waPBdGMs0rdGBLrqm0S2qMg0rxbF1bNM4A_wPL64cVfsvPY7hQ0qA8YE28UGLTlVSc7OEOHow";
+	
+        //destinatario es lo que cambiara, por tanto traccar debe consultarlo a ionic y el mensaje ira en funcion del cambio
+        //dest = "f3abRXtS5Fg:APA91bHpi01QFMbdKhJKqvMOmC7UL180NIBNQ6gFGpWi1-bDLrR2eeW9SSwaiuMNZPt5qeGK5gAxvBoPNvCeTRwf-5AH_-0ko_f9SjtMxwByxwWopDpJHz3wcyhqwq5FGXHxu-fAjKmT";
+	//mensaje = "Cambio en alguna zona";
+        
+	try {
+           String url = "https://fcm.googleapis.com/fcm/send";
+           String urlParameters = "{\"to\": \"" + dest + "\",\"data\": {\"message\": \"" + mensaje + "\"}}";
+          
+           URL obj = new URL(url);
+           HttpsURLConnection con = (HttpsURLConnection) obj.openConnection();
+           
+           //add request header
+           con.setRequestMethod("POST");
+           con.setRequestProperty("Authorization", apikey);
+           con.setRequestProperty("Content-Type", "application/json");
+            
+           // Send post request
+           con.setDoOutput(true);
+           DataOutputStream wr = new DataOutputStream(con.getOutputStream());
+           wr.writeBytes(urlParameters);
+           wr.flush();
+           wr.close();
+           
+           int responseCode = con.getResponseCode();
+           System.out.println("\nSending 'POST' request to URL : " + url);
+           System.out.println("Post parameters : " + urlParameters);
+           System.out.println("Response Code : " + responseCode);
+           
+           BufferedReader in = new BufferedReader(
+                   new InputStreamReader(con.getInputStream()));
+           String inputLine;
+           StringBuffer response = new StringBuffer();
+           
+           while ((inputLine = in.readLine()) != null) {
+               response.append(inputLine);
+           }
+           in.close();
+           
+           //print result
+           System.out.println(response.toString());
+       } catch (MalformedURLException ex) {} 
+        catch (IOException ex) {}
+    }
     /***********************************************************************************************************/
 
 }
