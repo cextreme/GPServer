@@ -616,6 +616,21 @@ public class DataManager implements IdentityManager {
                 + "')&api_key=bb027343ceb82dece775db749f966f81c9e58763";
         doPostCartoDB(urlParameters);
     }
+  
+    String ObtenerNombreZona(String id){
+        String urlParameters = "q=SELECT name FROM zonas WHERE cartodb_id = " + id;
+	String respuesta = doPostCartoDB(urlParameters);
+		
+        String sep[] = respuesta.split("name\":\"");
+
+        for (int i = 0; i < sep.length; i++) {
+            System.out.println(sep[i]);
+	}
+        String sep2[] = sep[1].split("\"}],\"time\"");
+        String nombre = sep2[0];
+        
+        return nombre;
+    }
     
     void Comprobacion(Position position){
         Map<String, String> arbolZonas = new TreeMap<String, String>();
@@ -667,12 +682,13 @@ public class DataManager implements IdentityManager {
                         String v_nuevo = arbolZonas.get(keys.get(j));
                         String v_viejo = dispositivos.get(id).get(keys.get(j));
                         if (!v_nuevo.equals(v_viejo)) {
+                            String n = ObtenerNombreZona(keys.get(j));
                             if (v_nuevo.equals("0")) {
-                                System.out.println("El dispositiva ha pasado de estar dentro a fuera.");
-                                mensaje = "El dispositiva ha pasado de estar dentro a fuera.";
+                                System.out.println("El dispositivo ha pasado de estar dentro a fuera.");
+                                mensaje = "Ha salido de "+ n +".";
                             } else {
-                                System.out.println("El dispositiva ha pasado de estar fuera a dentro.");
-                                mensaje = "El dispositiva ha pasado de estar fuera a dentro.";
+                                System.out.println("El dispositivo ha pasado de estar fuera a dentro.");
+                                mensaje = "Ha entrado en " + n + ".";
                             }
                             doPostNotification(dest, mensaje);
                         }
