@@ -69,6 +69,9 @@ import java.util.TreeMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.net.ssl.HttpsURLConnection;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 public class DataManager implements IdentityManager {
 
@@ -110,7 +113,7 @@ public class DataManager implements IdentityManager {
             System.out.println("-----------> Añadiendo al administrador !!!!!!");
             String urlParameters = "q=INSERT INTO users" 
                             + "(cartodb_id, username, email, password, salt)"
-                            + " VALUES (0, 'admin', 'admin@admin.es', 'BEF6EBB00275D6C83C5300D69CBA5548A8FD0BC07E6F6A44', 'ABB6183F383F884C254B301A95A86897E90B904B04B5A49A')&api_key=bb027343ceb82dece775db749f966f81c9e58763";
+                            + " VALUES (1, 'admin', 'admin@admin.es', 'BEF6EBB00275D6C83C5300D69CBA5548A8FD0BC07E6F6A44', 'ABB6183F383F884C254B301A95A86897E90B904B04B5A49A')&api_key=bb027343ceb82dece775db749f966f81c9e58763";
             doPostCartoDB(urlParameters);
         }
         
@@ -598,8 +601,9 @@ public class DataManager implements IdentityManager {
 
     public void addPositionCartoDB(Position position, long id){
         String urlParameters = "q=INSERT INTO positions"
-                + "(cartodb_id,address,altitude,attributes,course,deviceid,devicetime,fixtime,latitude,longitude,protocol,speed,valid, servertime)"
+                + "(cartodb_id,the_geom,address,altitude,attributes,course,deviceid,devicetime,fixtime,latitude,longitude,protocol,speed,valid, servertime)"
                 + " VALUES ("+ id
+                + ", " + "ST_GeomFromText('POINT(" + position.getLongitude() + " " + position.getLatitude() + ")', 4326)"
                 + ", '" + position.getAddress() + "',"
                 + position.getAltitude() + ","
                 + "'"+ position.getAttributes() + "',"
@@ -618,17 +622,51 @@ public class DataManager implements IdentityManager {
     }
   
     String ObtenerNombreZona(String id){
+        String nombre="";
         String urlParameters = "q=SELECT name FROM zonas WHERE cartodb_id = " + id;
 	String respuesta = doPostCartoDB(urlParameters);
-		
-        String sep[] = respuesta.split("name\":\"");
+        try {
+            JSONObject json = new JSONObject(respuesta);
+            JSONArray rows = json.getJSONArray("rows");
+            nombre = rows.getJSONObject(0).getString("name");
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+        return nombre;
+    }
+    
+    ArrayList<String> ObtenerIdsNotificaciones(int id){
+        ArrayList<String> destinos = new ArrayList<String>();
+        //consultar a carto el id del dispositivo a notificar
+        String urlParameters = "q=SELECT idnotification FROM users WHERE cartodb_id IN (SELECT userid FROM users_devices WHERE deviceid="+ id + ")";
+        String respuesta = doPostCartoDB(urlParameters);
 
-        for (int i = 0; i < sep.length; i++) {
-            System.out.println(sep[i]);
-	}
-        String sep2[] = sep[1].split("\"}],\"time\"");
-        String nombre = sep2[0];
-        
+        try {
+            JSONObject json = new JSONObject(respuesta);
+            int num = json.getInt("total_rows");
+            JSONArray rows = json.getJSONArray("rows");
+            for(int i=0; i < num; i++){
+                destinos.add(rows.getJSONObject(i).getString("idnotification"));
+            }
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+        return destinos;
+    }
+
+    String ObtenerNombreDisp(int id){
+        String nombre="";
+        //consultar a carto el id del dispositivo a notificar
+        String urlParameters = "q=SELECT name FROM devices WHERE cartodb_id = "+ id;
+        String respuesta = doPostCartoDB(urlParameters);
+
+        try {
+            JSONObject json = new JSONObject(respuesta);
+            JSONArray rows = json.getJSONArray("rows");
+            nombre = rows.getJSONObject(0).getString("name");
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
         return nombre;
     }
     
@@ -641,16 +679,22 @@ public class DataManager implements IdentityManager {
                 position.getLongitude() + ", " +
                 position.getLatitude() + ")&api_key=bb027343ceb82dece775db749f966f81c9e58763";
         String respuesta = doPostCartoDB(urlParameters);
+                
+        try {
+            JSONObject json = new JSONObject(respuesta);
+            JSONArray rows = json.getJSONArray("rows");
+            String array = rows.getJSONObject(0).getString("compruebaareas");
+
+            String[] zonas = array.split(";");
+            for(int i=0; i < zonas.length; i++){
+                String kv[] = zonas[i].split(",");
+                arbolZonas.put(kv[0], kv[1]);
+                System.out.println("Zona " + kv[0] + " con valor " + kv[1] );
+            }  
+        } catch (JSONException e) {
+            e.printStackTrace();
+	}
         
-        /*Con los dos primeros splits obtenemos la parte del JSON que nos interesa para conseguir la lista de zonas*/
-        String[] split1 = respuesta.split("compruebaareas\":\"");
-        String[] split2 = split1[1].split("\"}],\"time\"");
-        String[] zonas = split2[0].split(";");
-        for(int i=0; i < zonas.length; i++){
-            System.out.println("Zona: " + zonas[i]);
-            String kv[] = zonas[i].split(",");
-            arbolZonas.put(kv[0], kv[1]);
-        }
         
         int id = (int)position.getDeviceId();
 
@@ -665,13 +709,8 @@ public class DataManager implements IdentityManager {
             } else {
                 System.out.println("NO son iguales");
                 String mensaje;
-                String dest = "";
-                //consultar a carto el id del dispositivo a notificar
-                urlParameters = "q=SELECT idnotification FROM users WHERE cartodb_id = (SELECT userid FROM users_devices WHERE deviceid="+ id + ")";
-                respuesta = doPostCartoDB(urlParameters);
-                String sep[] = respuesta.split("idnotification\":\" ");
-                String sep2[] = sep[1].split("\"}],\"time\"");
-                dest = sep2[0];
+                ArrayList<String> destinos = ObtenerIdsNotificaciones(id);
+                String nombreDisp = ObtenerNombreDisp(id);
                 
                 ArrayList<String> keys = new ArrayList<String>();
                 Set<String> k = arbolZonas.keySet();
@@ -685,12 +724,14 @@ public class DataManager implements IdentityManager {
                             String n = ObtenerNombreZona(keys.get(j));
                             if (v_nuevo.equals("0")) {
                                 System.out.println("El dispositivo ha pasado de estar dentro a fuera.");
-                                mensaje = "Ha salido de "+ n +".";
+                                mensaje =nombreDisp + " ha salido de "+ n +".";
                             } else {
                                 System.out.println("El dispositivo ha pasado de estar fuera a dentro.");
-                                mensaje = "Ha entrado en " + n + ".";
+                                mensaje = nombreDisp + " ha entrado en " + n + ".";
                             }
-                            doPostNotification(dest, mensaje);
+                            for(int cont=0; cont < destinos.size(); cont++){
+                                doPostNotification(destinos.get(cont), mensaje);
+                            } 
                         }
                     }
                 }         
