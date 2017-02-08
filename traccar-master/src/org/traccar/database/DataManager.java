@@ -594,7 +594,6 @@ public class DataManager implements IdentityManager {
                 .setDate("now", new Date())
                 .setObject(position)
                 .executeUpdate());
-        System.out.println("ID: "+ id);
         addPositionCartoDB(position, id);
         Comprobacion(position);
     }
@@ -646,7 +645,9 @@ public class DataManager implements IdentityManager {
             int num = json.getInt("total_rows");
             JSONArray rows = json.getJSONArray("rows");
             for(int i=0; i < num; i++){
-                destinos.add(rows.getJSONObject(i).getString("idnotification"));
+                if(!rows.getJSONObject(i).isNull("idnotification")){
+                    destinos.add(rows.getJSONObject(i).getString("idnotification"));
+                }    
             }
         } catch (JSONException e) {
             e.printStackTrace();
@@ -655,18 +656,8 @@ public class DataManager implements IdentityManager {
     }
 
     String ObtenerNombreDisp(int id){
-        String nombre="";
-        //consultar a carto el id del dispositivo a notificar
-        String urlParameters = "q=SELECT name FROM devices WHERE cartodb_id = "+ id;
-        String respuesta = doPostCartoDB(urlParameters);
-
-        try {
-            JSONObject json = new JSONObject(respuesta);
-            JSONArray rows = json.getJSONArray("rows");
-            nombre = rows.getJSONObject(0).getString("name");
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
+        Device device = getDeviceById(id);
+        String nombre = device.getName();
         return nombre;
     }
     
@@ -674,7 +665,7 @@ public class DataManager implements IdentityManager {
         Map<String, String> arbolZonas = new TreeMap<String, String>();
         
         //SELECT CompruebaAreas(deviceid, long, lat)
-        String urlParameters = "q=SELECT CompruebaAreas("+
+        String urlParameters = "q=SELECT CompruebaAreasNew("+
                 position.getDeviceId() + ", " +
                 position.getLongitude() + ", " +
                 position.getLatitude() + ")&api_key=bb027343ceb82dece775db749f966f81c9e58763";
@@ -683,7 +674,7 @@ public class DataManager implements IdentityManager {
         try {
             JSONObject json = new JSONObject(respuesta);
             JSONArray rows = json.getJSONArray("rows");
-            String array = rows.getJSONObject(0).getString("compruebaareas");
+            String array = rows.getJSONObject(0).getString("compruebaareasnew");
 
             String[] zonas = array.split(";");
             for(int i=0; i < zonas.length; i++){
@@ -755,6 +746,7 @@ public class DataManager implements IdentityManager {
         //UPDATE devices SET positionId = :id WHERE id = :deviceId;
         String urlParameters = "q=UPDATE devices SET last_latitude = " + position.getLatitude() 
                 + ", last_longitude = " + position.getLongitude() 
+                + ", the_geom = ST_GeomFromText('POINT(" + position.getLongitude() + " " + position.getLatitude() + ")', 4326)"
                 + " WHERE cartodb_id=" + position.getDeviceId() 
                 + "&api_key=bb027343ceb82dece775db749f966f81c9e58763";
         doPostCartoDB(urlParameters);
