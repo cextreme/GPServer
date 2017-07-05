@@ -92,7 +92,11 @@ public class DataManager implements IdentityManager {
     private final Map<Long, Group> groupsById = new HashMap<>();
     private long groupsLastUpdate;
     
-    private ArrayList<Map<String, String>> dispositivos;
+    private ArrayList<Map<String, String>> dispositivosEstadosZonas;
+    private ArrayList<Map<String, Integer>> dispositivosContadorZonas;
+    private ArrayList<Map<String, String>> dispositivosEstadosZonasConfirmados;
+    
+    private final int MAX_REPETICIONES = 3;
 
     public DataManager(Config config) throws Exception {
         this.config = config;
@@ -105,9 +109,15 @@ public class DataManager implements IdentityManager {
         if(cargarArrayDispositivos()){
             System.out.println("Array de dispositivos cargado.");
         } else {
-            dispositivos = new ArrayList<Map<String, String>>();
-            dispositivos.add(null);
+            dispositivosEstadosZonas = new ArrayList<Map<String, String>>();
+            dispositivosEstadosZonas.add(null);
             guardarArrayDispositivos();
+            
+            dispositivosContadorZonas = new ArrayList<Map<String, Integer>>();
+            dispositivosContadorZonas.add(null);
+            
+            dispositivosEstadosZonasConfirmados = new ArrayList<Map<String, String>>();
+            dispositivosEstadosZonasConfirmados.add(null);
             
             // Añadir a cartodb el usuario admin admin
             System.out.println("-----------> Añadiendo al administrador !!!!!!");
@@ -409,7 +419,9 @@ public class DataManager implements IdentityManager {
                 .executeUpdate());
         updateDeviceCache(true);
         addDeviceCartoDB(device, id);
-        dispositivos.add((int)id, null);
+        dispositivosEstadosZonas.add((int)id, null);
+        dispositivosContadorZonas.add((int)id, null);
+        dispositivosEstadosZonasConfirmados.add((int)id, null);
         guardarArrayDispositivos();
         System.out.println("El identificador del dispositivo recien añadido es: " + id);
     }
@@ -662,6 +674,114 @@ public class DataManager implements IdentityManager {
     }
     
     void Comprobacion(Position position){
+        //Obtencion del arbol con los estados actuales de las zonas del dispositivo
+        Map<String, String> arbolZonasActual = obtenerArbolEstadoActual(position);
+        
+        int idDisp = (int)position.getDeviceId();
+
+        if(dispositivosEstadosZonas.get(idDisp) == null){
+            //No habia ningun estado anterior almacenado con el que comparar
+            System.out.println("Creando el primer arbol para el dispositivo...");
+            dispositivosEstadosZonas.set(idDisp, arbolZonasActual);
+            dispositivosEstadosZonasConfirmados.set(idDisp, arbolZonasActual);
+            //inicializar arbol de repeticiones
+            inicializarContadoresPorId(idDisp, arbolZonasActual);
+        } else {
+            //Hay un estado anterior con el que podemos comparar para ver si el estado del dispositivo ha cambiado respecto alguna de sus zonas
+            if (dispositivosEstadosZonas.get(idDisp).equals(arbolZonasActual)) {
+                System.out.println("Son iguales");
+                
+                //COMPROBAR SI ALGUNA ZONA TIENE EL CONTADOR DE REPETICIONES DISTINTO DE 0
+
+                //Arbol con el numero de repeticiones de cada zona
+                Map<String, Integer> arbolRepeticiones = dispositivosContadorZonas.get(idDisp);
+                
+                System.out.println("Buscamos alguna zona con contador de repeticiones != 0");
+                //Recorrido del arbol en busca de alguna zona con repeticiones != 0
+                for(Map.Entry<String, Integer> zona: arbolRepeticiones.entrySet()){
+                    Integer numRepeticiones = zona.getValue();
+                    if(numRepeticiones != 0){
+                        System.out.println("Num repeticiones != 0: " + numRepeticiones);
+                        if(numRepeticiones == MAX_REPETICIONES){
+                            System.out.println("Num repeticiones MAX: " + zona.getKey());
+                            //Variables para el envio de notificaciones
+                            String mensaje;
+                            ArrayList<String> destinos = ObtenerIdsNotificaciones(idDisp);
+                            String nombreDisp = ObtenerNombreDisp(idDisp);
+
+                            String v_nuevo = arbolZonasActual.get(zona.getKey());
+                            String n = ObtenerNombreZona(zona.getKey());
+
+                            if (v_nuevo.equals("0")) {
+                                System.out.println("El dispositivo ha pasado de estar dentro a fuera.");
+                                mensaje =nombreDisp + " ha salido de "+ n +".";
+                            } else {
+                                System.out.println("El dispositivo ha pasado de estar fuera a dentro.");
+                                mensaje = nombreDisp + " ha entrado en " + n + ".";
+                            }
+                            for(int cont=0; cont < destinos.size(); cont++){
+                                doPostNotification(destinos.get(cont), mensaje);
+                            } 
+                            
+                            //Introducimos este estado como estado confirmado
+                            dispositivosEstadosZonasConfirmados.set(idDisp, arbolZonasActual);
+
+                            //Reseteamos el contador de esta zona
+                            arbolRepeticiones.put(zona.getKey(), 0);
+                        } else {
+                            System.out.println("Incremento num Repeticiones: " + zona.getKey());
+                            //Aumentamos el numero de repeticiones para seguir dandole el margen de posible error
+                            numRepeticiones = numRepeticiones+1;
+                            arbolRepeticiones.put(zona.getKey(), numRepeticiones);
+                        }
+                    }
+                }
+
+                //Actualizamos el arbol de repeticiones de ese dispositivo
+                dispositivosContadorZonas.set(idDisp, arbolRepeticiones);
+            } else {
+                System.out.println("NO son iguales");
+                boolean mismoEstado = false;
+                
+                if(dispositivosEstadosZonasConfirmados.get(idDisp).equals(arbolZonasActual)){
+                    System.out.println("El estado actual es el mismo que el confirmado");
+                    mismoEstado = true;
+                } else {
+                    for(Map.Entry<String, String> zona: arbolZonasActual.entrySet()){
+                        if ( dispositivosEstadosZonasConfirmados.get(idDisp).containsKey(zona.getKey()) && dispositivosEstadosZonas.get(idDisp).containsKey(zona.getKey()) ) {
+                            String v_nuevo = zona.getValue();
+                            String v_viejo = dispositivosEstadosZonas.get(idDisp).get(zona.getKey());
+                            String v_confirmado = dispositivosEstadosZonasConfirmados.get(idDisp).get(zona.getKey());
+                            if (!v_nuevo.equals(v_viejo) && v_nuevo.equals(v_confirmado)) {
+                                mismoEstado = true;
+                            }
+                        }
+                    }
+                }
+                
+                inicializarContadoresPorId(idDisp, arbolZonasActual);
+
+
+                for(Map.Entry<String, String> zona: arbolZonasActual.entrySet()){
+                    System.out.println("Entra FOR");
+                    if ( dispositivosEstadosZonas.get(idDisp).containsKey(zona.getKey()) ) {
+                        String v_nuevo = zona.getValue();
+                        String v_viejo = dispositivosEstadosZonas.get(idDisp).get(zona.getKey());
+                        if (!v_nuevo.equals(v_viejo) && !mismoEstado) {
+                            System.out.println("Contador repeticiones incrememntado: " + zona.getKey());
+                            dispositivosContadorZonas.get(idDisp).put(zona.getKey(), 1);
+                        }
+                    }
+                }
+                //Actualizacion del estado actual de este dispositivo respecto todas sus zonas
+                dispositivosEstadosZonas.set(idDisp, arbolZonasActual);
+                System.out.println("Nuevo estado actualizado: " + arbolZonasActual.toString());
+            }
+        }
+	
+    }
+    
+    private Map<String, String> obtenerArbolEstadoActual(Position position){
         Map<String, String> arbolZonas = new TreeMap<String, String>();
         
         //SELECT CompruebaAreas(deviceid, long, lat)
@@ -686,50 +806,18 @@ public class DataManager implements IdentityManager {
             e.printStackTrace();
 	}
         
-        
-        int id = (int)position.getDeviceId();
+        return arbolZonas;
+    }
+    
+    private void inicializarContadoresPorId(int id, Map<String, String> arbolZonas){
+        System.out.println("Inicializando contadores de :" + id);
+        Map<String, Integer> arbolRepeticiones = new TreeMap<String, Integer>();
 
-        if(dispositivos.get(id) == null){
-
-            System.out.println("Creando el primer arbol para el dispositivo...");
-            dispositivos.set(id, arbolZonas);
-        } else {
-
-            if (dispositivos.get(id).equals(arbolZonas)) {
-                System.out.println("Son iguales");
-            } else {
-                System.out.println("NO son iguales");
-                String mensaje;
-                ArrayList<String> destinos = ObtenerIdsNotificaciones(id);
-                String nombreDisp = ObtenerNombreDisp(id);
-                
-                ArrayList<String> keys = new ArrayList<String>();
-                Set<String> k = arbolZonas.keySet();
-                keys.addAll(k);
-
-                for (int j = 0; j < keys.size(); j++) {
-                    if (dispositivos.get(id).containsKey(keys.get(j))) {
-                        String v_nuevo = arbolZonas.get(keys.get(j));
-                        String v_viejo = dispositivos.get(id).get(keys.get(j));
-                        if (!v_nuevo.equals(v_viejo)) {
-                            String n = ObtenerNombreZona(keys.get(j));
-                            if (v_nuevo.equals("0")) {
-                                System.out.println("El dispositivo ha pasado de estar dentro a fuera.");
-                                mensaje =nombreDisp + " ha salido de "+ n +".";
-                            } else {
-                                System.out.println("El dispositivo ha pasado de estar fuera a dentro.");
-                                mensaje = nombreDisp + " ha entrado en " + n + ".";
-                            }
-                            for(int cont=0; cont < destinos.size(); cont++){
-                                doPostNotification(destinos.get(cont), mensaje);
-                            } 
-                        }
-                    }
-                }         
-                dispositivos.set(id, arbolZonas);
-            }
+        for(Map.Entry<String, String> zona: arbolZonas.entrySet()){
+            arbolRepeticiones.put(zona.getKey(), 0);
         }
-	
+        dispositivosContadorZonas.set(id, arbolRepeticiones);
+        System.out.println("Inicializado el arbol de repeticiones: " + arbolRepeticiones.toString());
     }
     
     public void updateLatestPosition(Position position) throws SQLException {
@@ -806,7 +894,20 @@ public class DataManager implements IdentityManager {
         try {
             FileInputStream fis = new FileInputStream("disp_zonas.map");
             ObjectInputStream ois = new ObjectInputStream(fis);
-            this.dispositivos = (ArrayList<Map<String, String>>) ois.readObject();
+            this.dispositivosEstadosZonas = (ArrayList<Map<String, String>>) ois.readObject();
+            this.dispositivosEstadosZonas.add(1, null);
+            this.dispositivosEstadosZonas.add(2, null);
+            this.dispositivosEstadosZonasConfirmados = new ArrayList<Map<String, String>>();
+            this.dispositivosEstadosZonasConfirmados.addAll(this.dispositivosEstadosZonas);
+            this.dispositivosContadorZonas = new ArrayList<Map<String, Integer>>();
+            for(int i=0; i<this.dispositivosEstadosZonas.size(); i++){
+                this.dispositivosContadorZonas.add(i, new TreeMap<String, Integer>());
+                if(this.dispositivosEstadosZonas.get(i) != null){
+                    for(Map.Entry<String, String> zona: this.dispositivosEstadosZonas.get(i).entrySet()){
+                        this.dispositivosContadorZonas.get(i).put(zona.getKey(), 0);
+                    }
+                }
+            }
             return true;
         } catch (Exception e) {
             return false;
@@ -818,7 +919,7 @@ public class DataManager implements IdentityManager {
         try {
             FileOutputStream fos = new FileOutputStream("disp_zonas.map");
             ObjectOutputStream oos = new ObjectOutputStream(fos);
-            oos.writeObject(this.dispositivos);
+            oos.writeObject(this.dispositivosEstadosZonas);
         } catch (Exception e) {
             System.out.println(e);
         }
@@ -870,16 +971,35 @@ public class DataManager implements IdentityManager {
     
     public void doPostNotification(String dest, String mensaje){
         System.out.println("PRUEBA POST NOTIFICACION");
-	String apikey = "key=AAAANDMNXEg:APA91bG5U1Dat9T-jLTDpB1khB7gQ2ht8aRghS0F43eFKaJDV_ZBa1B2I3o6q4-I466waPBdGMs0rdGBLrqm0S2qMg0rxbF1bNM4A_wPL64cVfsvPY7hQ0qA8YE28UGLTlVSc7OEOHow";
+	//String apikey = "key=AAAANDMNXEg:APA91bG5U1Dat9T-jLTDpB1khB7gQ2ht8aRghS0F43eFKaJDV_ZBa1B2I3o6q4-I466waPBdGMs0rdGBLrqm0S2qMg0rxbF1bNM4A_wPL64cVfsvPY7hQ0qA8YE28UGLTlVSc7OEOHow";
+        //String apikey = "key=AIzaSyBVeqskWRVAHGS1GXmX-36ACwnvuhBbXRY";
+        String apikey = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI3MzRmM2U0YS00MTMxLTQyNDQtYjEwYi0zMGUzY2YwYjZiZTYifQ.UjyvPpgy4xFBoXFfL-AC65Edq4jHqUsT27eRF-KMzAw";
 	
         //destinatario es lo que cambiara, por tanto traccar debe consultarlo a ionic y el mensaje ira en funcion del cambio
         //dest = "f3abRXtS5Fg:APA91bHpi01QFMbdKhJKqvMOmC7UL180NIBNQ6gFGpWi1-bDLrR2eeW9SSwaiuMNZPt5qeGK5gAxvBoPNvCeTRwf-5AH_-0ko_f9SjtMxwByxwWopDpJHz3wcyhqwq5FGXHxu-fAjKmT";
 	//mensaje = "Cambio en alguna zona";
         
 	try {
-           String url = "https://fcm.googleapis.com/fcm/send";
-           String urlParameters = "{\"to\": \"" + dest + "\",\"data\": {\"message\": \"" + mensaje + "\"}}";
-          
+           //String url = "https://fcm.googleapis.com/fcm/send";
+           //String urlParameters = "{\"to\": \"" + dest + "\",\"data\": {\"title\": \"Notificación\", \"message\": \"" + mensaje + "\"}}";
+           String url = "https://api.ionic.io/push/notifications";
+           String urlParameters= "{" +
+                                    "\"tokens\": [\""+ dest + "\"]," +
+                                    "\"profile\": \"geocontrolnotif\"," +
+                                    "\"notification\": {" +
+                                      "\"title\": \"GeoControl\"," +
+                                      "\"message\": \"" + mensaje + "\"," +
+                                      "\"android\": {" +
+                                        "\"title\": \"GeoControl\"," +
+                                        "\"message\": \"" + mensaje + "\"" +
+                                      "}," +
+                                      "\"ios\": {" +
+                                        "\"title\": \"GeoControl\"," +
+                                        "\"message\": \"" + mensaje + "\"" +
+                                      "}" +
+                                    "}" +
+                                  "}";
+           
            URL obj = new URL(url);
            HttpsURLConnection con = (HttpsURLConnection) obj.openConnection();
            
