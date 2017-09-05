@@ -661,7 +661,7 @@ public class DataManager implements IdentityManager {
     public void addPositionCartoDB(Position position, long id){
         String urlParameters = "q=INSERT INTO positions"
                 + "(cartodb_id,the_geom,address,altitude,attributes,course,deviceid,devicetime,fixtime,latitude,longitude,protocol,speed,valid, servertime)"
-                + " VALUES ("+ id
+                + " VALUES ("+ 901 + id
                 + ", " + "ST_GeomFromText('POINT(" + position.getLongitude() + " " + position.getLatitude() + ")', 4326)"
                 + ", '" + position.getAddress() + "',"
                 + position.getAltitude() + ","
